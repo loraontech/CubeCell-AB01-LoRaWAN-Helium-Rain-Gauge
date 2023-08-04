@@ -11,20 +11,25 @@
 
 #include "LoRaWan_APP.h"
 #include "Arduino.h"
-#include <CayenneLPP.h>
+#include <CayenneLPP.h>  //con platformio mucho más facil
 
+
+//ACTIVACIÓN
 /* OTAA para*/
-uint8_t devEui[] = {};
-uint8_t appEui[] = {};
-uint8_t appKey[] = {};
+//estas claves las sacamos del device de helium
+uint8_t devEui[] = {0x60, 0x81, 0xF9, 0x1E, 0x31, 0xFD, 0x5F, 0x5D};
+uint8_t appEui[] = {0x60, 0x81, 0xF9, 0xD1, 0xA1, 0x72, 0x80, 0x73};
+uint8_t appKey[] = {0x8B, 0xE0, 0x15, 0x58, 0x33, 0x9E, 0x18, 0x16, 0x76, 0x12, 0xCB, 0x07, 0x07, 0xC2, 0xC8, 0x3C};
 
-/* ABP para*/
+/* ABP para*/ //esta no la usamos, en principio la otra es mejor
 uint8_t nwkSKey[] = {};
 uint8_t appSKey[] = {};
 uint32_t devAddr = (uint32_t)0x00;
 
-/*LoraWan channelsmask, default channels 0-7*/
+/*LoraWan channelsmask, default channels 0-7*/ //esta la dejo por defecto
 uint16_t userChannelsMask[6] = {0x00FF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000};
+
+
 
 // The interrupt pin is attached to GPIO1
 #define RAIN_GAUGE_PIN GPIO1
@@ -33,7 +38,7 @@ bool wakeUp = false;
 int rainGaugeCounter = 0;
 int cycleCounter = 0;
 int batteryVoltage;
-bool ENABLE_SERIAL = true; // Enable serial debug output here if required
+bool ENABLE_SERIAL = false; // Enable serial debug output here if required: si lo dejo en false no pasaría nada
 
 /*LoraWan region, select in arduino IDE tools*/
 LoRaMacRegion_t loraWanRegion = ACTIVE_REGION;
@@ -43,8 +48,13 @@ DeviceClass_t loraWanClass = LORAWAN_CLASS;
 
 /*the application data transmission duty cycle.  value in [ms].*/
 /*For this example, this is the frequency of the device status packets */
-uint32_t appTxDutyCycle = 900000; // Default 15 mins
-uint32_t watchDogTimer = 86400000; // Daily health check
+uint32_t appTxDutyCycle = 900000; // Default 15 mins=900000
+//este será el tiempo entre mensajes cuando haya lluvia
+//si no hay lluvia no se manda nada
+
+uint32_t watchDogTimer = 86400000; // Daily health check 24h=86400000
+//lo pongo a 3600000 para que sea cada hora
+//aunque no se mande nada una vez al día se manda un paquete para comprobar que todo funciona
 
 /*OTAA or ABP*/
 bool overTheAirActivation = LORAWAN_NETMODE;
@@ -70,16 +80,16 @@ uint8_t confirmedNbTrials = 4;
 /* Prepares the payload of the frame */
 static void prepareTxFrame()
 {
-  float vbat = getBatteryVoltage();
+  float vbat = getBatteryVoltage(); 
 
-  CayenneLPP lpp(8);
-  lpp.reset();
-  lpp.addDigitalInput(15, rainGaugeCounter);
-  lpp.addAnalogInput(8, vbat / 1000);
+  CayenneLPP lpp(8); //se crea un objeto de la clase CayenneLPP ¿de tamaño 8?
+  lpp.reset(); //se resetea
+  lpp.addDigitalInput(15, rainGaugeCounter); //se añade el contador digital de lluvia en el canal 15
+  lpp.addAnalogInput(8, vbat / 1000); //se añade la batería analógicamente en el canal 8
   appDataSize = lpp.getSize();
   lpp.copy(appData);
 
-  if (ENABLE_SERIAL)
+  if (ENABLE_SERIAL) //esto es para debug
   {
     Serial.println();
     Serial.println("Rain gauge counter: " + String(rainGaugeCounter));
@@ -92,7 +102,7 @@ static void prepareTxFrame()
 
 void rainGaugeWakeUp()
 {
-  detachInterrupt(RAIN_GAUGE_PIN);
+  detachInterrupt(RAIN_GAUGE_PIN); //desconecta la interrupción?
   rainGaugeCounter++;
   wakeUp = true;
   //!\\ Debounce reed switch
@@ -102,13 +112,13 @@ void rainGaugeWakeUp()
 void setup()
 {
 
-  if (ENABLE_SERIAL)
+  if (ENABLE_SERIAL) //debug
   {
     Serial.begin(115200);
   }
 
-  deviceState = DEVICE_STATE_INIT;
-  LoRaWAN.ifskipjoin();
+  deviceState = DEVICE_STATE_INIT; //siempre empieza en este estado para inicializarse
+  LoRaWAN.ifskipjoin(); //if saved net info is OK in lorawan mode, skip join
 
   wakeUp = false;
   pinMode(RAIN_GAUGE_PIN, INPUT_PULLUP);
@@ -117,62 +127,63 @@ void setup()
 
 void loop()
 {
-  if (wakeUp)
+  if (wakeUp) //solo vale para debug, lo dice cuando detecta un pulso del pluviómetro (está lloviendo)
   {
     if (ENABLE_SERIAL)
     {
-      Serial.println("\nIt's Raining Men !");
+      Serial.println("\nIts (prueba) Raining Men");
     }
   }
 
   switch (deviceState)
   {
-  case DEVICE_STATE_INIT:
+  case DEVICE_STATE_INIT: //inicializar
   {
     printDevParam();
-    LoRaWAN.init(loraWanClass, loraWanRegion);
-    deviceState = DEVICE_STATE_JOIN;
+    LoRaWAN.init(loraWanClass, loraWanRegion); //se inicializa
+    deviceState = DEVICE_STATE_JOIN; //cambia de estado
     break;
   }
-  case DEVICE_STATE_JOIN:
+  case DEVICE_STATE_JOIN: //enlazar
   {
-    LoRaWAN.join();
+    LoRaWAN.join(); //se enlaza
     break;
   }
-  case DEVICE_STATE_SEND:
+  case DEVICE_STATE_SEND: //mandar un ciclo
   {
-    cycleCounter++;
+    cycleCounter++; //suma un ciclo a la cuenta de ciclos
     if (rainGaugeCounter > 0 || (cycleCounter * appTxDutyCycle) > watchDogTimer)
+    //si hay datos para mandar o ha pasado un día, se manda
     {
-      prepareTxFrame();
+      prepareTxFrame(); //llama a este método previamente definido (prepara las variables a mandar)
       if (IsLoRaMacNetworkJoined)
       {
-        LoRaWAN.send();
+        LoRaWAN.send(); //manda el paquete
       }
-      cycleCounter = 0;
+      cycleCounter = 0; //vuelve a empezar el ciclo
     }
-    deviceState = DEVICE_STATE_CYCLE;
+    deviceState = DEVICE_STATE_CYCLE; //cambia de estado
     break;
   }
-  case DEVICE_STATE_CYCLE:
+  case DEVICE_STATE_CYCLE: //prepara siguiente ciclo
   {
     // Schedule next packet transmission
-    txDutyCycleTime = appTxDutyCycle + randr(0, APP_TX_DUTYCYCLE_RND);
-    LoRaWAN.cycle(txDutyCycleTime);
-    deviceState = DEVICE_STATE_SLEEP;
+    txDutyCycleTime = appTxDutyCycle + randr(0, APP_TX_DUTYCYCLE_RND); //como mucho un s más?
+    LoRaWAN.cycle(txDutyCycleTime); //un pelin mas de 15min: pone el contador y lo inicializa
+    deviceState = DEVICE_STATE_SLEEP; //cambia de estado
     break;
   }
-  case DEVICE_STATE_SLEEP:
+  case DEVICE_STATE_SLEEP: //duerme y gestiona pulsos
   {
-    if (wakeUp)
+    if (wakeUp) //si se despierta es porque ha detectado un pulso del pluviometro
     {
-      attachInterrupt(RAIN_GAUGE_PIN, rainGaugeWakeUp, FALLING);
+      attachInterrupt(RAIN_GAUGE_PIN, rainGaugeWakeUp, FALLING); //se despierta y lo suma al contador
       wakeUp = false;
     }
-    LoRaWAN.sleep();
+    LoRaWAN.sleep(); //se vuelve a dormir
     break;
   }
-  default:
+  default: //en principio nunca entra aquí
   {
     deviceState = DEVICE_STATE_INIT;
     break;
